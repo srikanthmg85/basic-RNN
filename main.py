@@ -44,6 +44,7 @@ class VanillaRNN:
       h1[i] = np.dot(self.wxh , x[i]) + np.dot(self.whh , h1[i-1]) + self.bh 
       h1[i] = np.tanh(h1[i])
       logits = np.dot(self.wyh, h1[i]) + self.by
+      #pdb.set_trace()
       probs[i] = np.exp(logits)/sum(np.exp(logits))
 
     return x,h1,probs,h1[seq_len-1]
@@ -89,7 +90,7 @@ class VanillaRNN:
 
       dh_next = np.dot(self.whh.T,dh_bef)
 
-      return dxh,dhh,dyh,dbh,dby
+    return dxh,dhh,dyh,dbh,dby
 
   def SGD_step(self,dxh,dhh,dyh,dbh,dby):
     
@@ -102,17 +103,44 @@ class VanillaRNN:
     self.bh  -= self.learning_rate*dbh
     self.by  -= self.learning_rate*dby
 
+  def sample(self,start,num_chars):
+    start_idx = self.char_to_index[start]
+
+    h = np.zeros((self.num_hidden_units,1))
+    idx = start_idx
+    seq = [start]    
+
+    for i in range(num_chars):
+      x = np.zeros((self.vocab_size,1))
+      x[idx] = 1
+      h1 = np.dot(self.wxh , x) + np.dot(self.whh , h) + self.bh
+      h1 = np.tanh(h1)
+      logits = np.dot(self.wyh, h1) + self.by
+      probs = np.exp(logits)/sum(np.exp(logits))
+      h = np.copy(h1)
+      idx = np.random.choice(range(self.vocab_size),p=probs.ravel())
+      seq.append(self.index_to_char[idx])
+
+    return seq
+
+
+    
+
+    
+    
+
  
 txtFile = sys.argv[1] 
 num_hidden_units = 100
 seq_len = 25 
-rnn = VanillaRNN(txtFile,num_hidden_units,seq_len,0.1,10)
+rnn = VanillaRNN(txtFile,num_hidden_units,seq_len,0.01,10)
 
 hprev = np.zeros((rnn.num_hidden_units,1))
 
+count = 0
 
 for j in range(rnn.num_epochs):
-  loss = 0
+  
   for i in range(len(rnn.data)/rnn.seq_len):
 
     inputs = [rnn.char_to_index[ch] for ch in rnn.data[i*rnn.seq_len:(i+1)*rnn.seq_len]]
@@ -124,11 +152,15 @@ for j in range(rnn.num_epochs):
 
     dwxh,dwhh,dwyh,dbh,dby = rnn.backward(probs,outputs,x,h1)
     rnn.SGD_step(dwxh,dwhh,dwyh,dbh,dby)
+    #pdb.set_trace()
+    #print count
  
-     
-
-
-
+    if count%100 == 0:
+      
+      seq = rnn.sample('W',50) 
+      txt = ''.join(ix for ix in seq)
+      print txt
+    count += 1
 
 
 
