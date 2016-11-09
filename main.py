@@ -7,6 +7,7 @@ import numpy as np
 import os
 import sys
 import pdb
+from random import uniform
 
 class VanillaRNN:
 
@@ -79,8 +80,8 @@ class VanillaRNN:
       
 
       #backpropogate to h before non-linearity
-      dh_bef = dh*(1-h1[i]*h1[i])      
-      dbh += np.sum(dh_bef)
+      dh_bef = dh*(1-(h1[i]*h1[i]))      
+      dbh += dh_bef
 
       #backpropogate to wxh
       dxh += np.dot(dh_bef,x[i].T)
@@ -103,31 +104,63 @@ class VanillaRNN:
     self.bh  -= self.learning_rate*dbh
     self.by  -= self.learning_rate*dby
 
-  def sample(self,start,num_chars):
-    start_idx = self.char_to_index[start]
+  def sample(self,start,hprev,num_chars):
+    start_idx = start
 
-    h = np.zeros((self.num_hidden_units,1))
+    #h = np.zeros((self.num_hidden_units,1))
     idx = start_idx
-    seq = [start]    
+    seq = [self.index_to_char[start]]    
 
     for i in range(num_chars):
       x = np.zeros((self.vocab_size,1))
       x[idx] = 1
-      h1 = np.dot(self.wxh , x) + np.dot(self.whh , h) + self.bh
+      h1 = np.dot(self.wxh , x) + np.dot(self.whh , hprev) + self.bh
       h1 = np.tanh(h1)
       logits = np.dot(self.wyh, h1) + self.by
       probs = np.exp(logits)/sum(np.exp(logits))
-      h = np.copy(h1)
+      hprev = np.copy(h1)
       idx = np.random.choice(range(self.vocab_size),p=probs.ravel())
       seq.append(self.index_to_char[idx])
 
     return seq
 
+  #Gradient check code from Andrej Karpathy 
 
-    
+  def gradCheck(self,inputs, target, hprev):
 
-    
-    
+    global Wxh, Whh, Why, bh, by
+    num_checks, delta = 10, 1e-5
+    x,h1,probs,hprev = self.forward(inputs,hprev)
+    dwxh,dwhh,dwyh,dbh,dby = self.backward(probs,target,x,h1)    
+
+    for param,dparam,name in zip([self.wxh, self.whh, self.wyh, self.bh, self.by], [dwxh, dwhh, dwyh, dbh, dby], ['Wxh', 'Whh', 'Why', 'bh', 'by']):
+      s0 = dparam.shape
+      s1 = param.shape
+      assert s0 == s1, 'Error dims dont match: %s and %s.' % (`s0`, `s1`)
+      print name
+
+      for i in xrange(num_checks):
+        ri = int(uniform(0,param.size))
+        # evaluate cost at [x + delta] and [x - delta]
+        old_val = param.flat[ri]
+        param.flat[ri] = old_val + delta
+       
+        x,h1,probs,hprev = self.forward(inputs,hprev)
+        cg0 = self.loss(probs,target)
+
+        param.flat[ri] = old_val - delta
+        
+        x,h1,probs,hprev = self.forward(inputs,hprev)
+        cg1 = self.loss(probs,target)
+        
+        param.flat[ri] = old_val # reset old value for this parameter
+        # fetch both numerical and analytic gradient
+        grad_analytic = dparam.flat[ri]
+        grad_numerical = (cg0 - cg1) / ( 2 * delta )
+        rel_error = abs(grad_analytic - grad_numerical) / abs(grad_numerical + grad_analytic)
+        print '%f, %f => %e ' % (grad_numerical, grad_analytic, rel_error)
+        # rel_error should be on order of 1e-7 or less
+
 
  
 txtFile = sys.argv[1] 
@@ -137,11 +170,21 @@ rnn = VanillaRNN(txtFile,num_hidden_units,seq_len,0.01,10)
 
 hprev = np.zeros((rnn.num_hidden_units,1))
 
+
+inputs = [rnn.char_to_index[ch] for ch in rnn.data[0*rnn.seq_len:(0+1)*rnn.seq_len]]
+outputs= [rnn.char_to_index[ch] for ch in rnn.data[0*rnn.seq_len + 1:(0+1)*rnn.seq_len + 1]]
+rnn.gradCheck(inputs,outputs,hprev)
+pdb.set_trace()
+
+
 count = 0
 
 for j in range(rnn.num_epochs):
   
   for i in range(len(rnn.data)/rnn.seq_len):
+
+    if i == 0:
+      hprev = np.zeros((rnn.num_hidden_units,1))
 
     inputs = [rnn.char_to_index[ch] for ch in rnn.data[i*rnn.seq_len:(i+1)*rnn.seq_len]]
     outputs= [rnn.char_to_index[ch] for ch in rnn.data[i*rnn.seq_len + 1:(i+1)*rnn.seq_len + 1]]
@@ -157,7 +200,7 @@ for j in range(rnn.num_epochs):
  
     if count%100 == 0:
       
-      seq = rnn.sample('W',50) 
+      seq = rnn.sample(inputs[0],hprev,50) 
       txt = ''.join(ix for ix in seq)
       print txt
     count += 1
