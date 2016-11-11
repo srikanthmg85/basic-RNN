@@ -80,7 +80,7 @@ class VanillaRNN:
       
 
       #backpropogate to h before non-linearity
-      dh_bef = dh*(1-(h1[i]*h1[i]))      
+      dh_bef = (1-(h1[i]*h1[i]))*dh      
       dbh += dh_bef
 
       #backpropogate to wxh
@@ -130,7 +130,7 @@ class VanillaRNN:
 
     global Wxh, Whh, Why, bh, by
     num_checks, delta = 10, 1e-5
-    x,h1,probs,hprev = self.forward(inputs,hprev)
+    x,h1,probs,_ = self.forward(inputs,hprev)
     dwxh,dwhh,dwyh,dbh,dby = self.backward(probs,target,x,h1)    
 
     for param,dparam,name in zip([self.wxh, self.whh, self.wyh, self.bh, self.by], [dwxh, dwhh, dwyh, dbh, dby], ['Wxh', 'Whh', 'Why', 'bh', 'by']):
@@ -145,12 +145,12 @@ class VanillaRNN:
         old_val = param.flat[ri]
         param.flat[ri] = old_val + delta
        
-        x,h1,probs,hprev = self.forward(inputs,hprev)
+        x,h1,probs,_ = self.forward(inputs,hprev)
         cg0 = self.loss(probs,target)
 
         param.flat[ri] = old_val - delta
         
-        x,h1,probs,hprev = self.forward(inputs,hprev)
+        x,h1,probs,_ = self.forward(inputs,hprev)
         cg1 = self.loss(probs,target)
         
         param.flat[ri] = old_val # reset old value for this parameter
@@ -166,7 +166,7 @@ class VanillaRNN:
 txtFile = sys.argv[1] 
 num_hidden_units = 100
 seq_len = 25 
-rnn = VanillaRNN(txtFile,num_hidden_units,seq_len,0.01,10)
+rnn = VanillaRNN(txtFile,num_hidden_units,seq_len,0.1,10)
 
 hprev = np.zeros((rnn.num_hidden_units,1))
 
@@ -174,10 +174,17 @@ hprev = np.zeros((rnn.num_hidden_units,1))
 inputs = [rnn.char_to_index[ch] for ch in rnn.data[0*rnn.seq_len:(0+1)*rnn.seq_len]]
 outputs= [rnn.char_to_index[ch] for ch in rnn.data[0*rnn.seq_len + 1:(0+1)*rnn.seq_len + 1]]
 rnn.gradCheck(inputs,outputs,hprev)
-pdb.set_trace()
+#pdb.set_trace()
 
 
 count = 0
+
+mxh = np.zeros_like(rnn.wxh)
+mhh = np.zeros_like(rnn.whh)
+myh = np.zeros_like(rnn.wyh)
+mbh = np.zeros_like(rnn.bh)
+mby = np.zeros_like(rnn.by)
+
 
 for j in range(rnn.num_epochs):
   
@@ -194,7 +201,23 @@ for j in range(rnn.num_epochs):
     
 
     dwxh,dwhh,dwyh,dbh,dby = rnn.backward(probs,outputs,x,h1)
-    rnn.SGD_step(dwxh,dwhh,dwyh,dbh,dby)
+
+    mxh += dwxh*dwxh
+    mhh += dwhh*dwhh
+    myh += dwyh*dwyh
+    mbh += dbh*dbh
+    mby += dby*dby
+
+    rnn.wxh -= rnn.learning_rate*dwxh/(np.sqrt(mxh + 1e-8))
+    rnn.whh -= rnn.learning_rate*dwhh/(np.sqrt(mhh + 1e-8))
+    rnn.wyh -= rnn.learning_rate*dwyh/(np.sqrt(myh + 1e-8))
+    rnn.bh -= rnn.learning_rate*dbh/(np.sqrt(mbh + 1e-8))
+    rnn.by -= rnn.learning_rate*dby/(np.sqrt(mby + 1e-8))
+
+
+
+
+    #rnn.SGD_step(dwxh,dwhh,dwyh,dbh,dby)
     #pdb.set_trace()
     #print count
  
